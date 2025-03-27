@@ -2,18 +2,19 @@ package config
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 )
 
 type Config struct {
-	DBURL           string `json:"db_url"`
-	CurrentUserName string `json:"current_user_name"`
+	CurrentUser string
+}
+type State struct {
+	Config *Config
 }
 
 func (c *Config) SetUser(username string) error {
-	c.CurrentUserName = username
+	c.CurrentUser = username
 	return write(c)
 }
 
@@ -53,12 +54,11 @@ func write(c *Config) error {
 }
 
 func getConfigFile() (string, error) {
-	const configFileName = "Gator/gatorconfig.json"
+	const configFileName = ".gatorconfig.json"
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
 	path := filepath.Join(homeDir, configFileName)
-	fmt.Println(path)
 	return path, err
 }
