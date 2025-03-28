@@ -9,4 +9,4 @@ VALUES (
 RETURNING *;
 
 -- name: GetUser :one
-SELECT * FROM users;
+SELECT id, created_at, updated_at, name FROM users WHERE name = $1;

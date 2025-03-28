@@ -29,18 +29,18 @@ func main() {
 
 func listenToCommands(state *config.State, commandsRegistry *commands.Registry) {
 	args := os.Args
-	if len(args) < 3 {
-		_ = fmt.Errorf("not enough arguments")
+	if len(args) < 2 {
+		fmt.Fprintf(os.Stderr, "not enough arguments\n")
 		os.Exit(1)
 	}
 	command := commands.CLI{Name: args[1], Args: args[2:]}
-	err := commandsRegistry.Run(state, command)
-	if err != nil {
-		_ = fmt.Errorf("error running command: %s\n%v", command.Name, err)
+	if err := commandsRegistry.Run(state, command); err != nil {
+		fmt.Fprintf(os.Stderr, "error running command %s: %v\n", command.Name, err)
+		os.Exit(1)
 	}
 }
 
 func registerCommandsHandlers(commandsRegistry *commands.Registry) {
 	commandsRegistry.Register("login", commands.LoginHandler)
-
+	commandsRegistry.Register("register", commands.RegisterHandler)
 }
