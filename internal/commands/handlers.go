@@ -78,6 +78,32 @@ func RegisterHandler(state *config.State, cmd CLI) error {
 	return nil
 }
 
+// ResetHandler reset the users table (delete all the rows)
+func ResetHandler(state *config.State, cmd CLI) error {
+	// tell state to delete all the rows
+	err := state.DB.DeleteAllUser(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to delete all users: %w", err)
+	}
+	return err
+}
+
+// UserListHandler list all users in the users database
+func UserListHandler(state *config.State, cmd CLI) error {
+	users, err := state.DB.GetAllUsers(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to get all users: %w", err)
+	}
+	for _, user := range users {
+		if user.Name == state.Config.CurrentUser {
+			fmt.Printf("* %s (current)\n", user.Name)
+		}
+		fmt.Printf("* %s", user.Name)
+	}
+
+	return err
+}
+
 // handlersUtil
 func checkArgsNotEmpty(cmd CLI) error {
 	if len(cmd.Args) == 0 {

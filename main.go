@@ -43,4 +43,6 @@ func listenToCommands(state *config.State, commandsRegistry *commands.Registry) 
 func registerCommandsHandlers(commandsRegistry *commands.Registry) {
 	commandsRegistry.Register("login", commands.LoginHandler)
 	commandsRegistry.Register("register", commands.RegisterHandler)
+	commandsRegistry.Register("reset", commands.ResetHandler)
+	commandsRegistry.Register("users", commands.UserListHandler)
 }
