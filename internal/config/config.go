@@ -2,14 +2,17 @@ package config
 
 import (
 	"encoding/json"
+	"github.com/maevlava/Gator/internal/database"
 	"os"
 	"path/filepath"
 )
 
 type Config struct {
-	CurrentUser string
+	DBUrl       string `json:"db_url"`
+	CurrentUser string `json:"current_user"`
 }
 type State struct {
+	DB     *database.Queries
 	Config *Config
 }
 
