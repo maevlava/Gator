@@ -45,5 +45,6 @@ func registerCommandsHandlers(commandsRegistry *commands.Registry) {
 	commandsRegistry.Register("register", commands.RegisterHandler)
 	commandsRegistry.Register("reset", commands.ResetHandler)
 	commandsRegistry.Register("users", commands.UserListHandler)
-	commandsRegistry.Register("agg", commands.Agghandler)
+	commandsRegistry.Register("agg", commands.AggHandler)
+	commandsRegistry.Register("addfeed", commands.AddFeedHandler)
 }

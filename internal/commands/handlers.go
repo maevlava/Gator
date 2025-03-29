@@ -20,13 +20,12 @@ import (
 func LoginHandler(state *config.State, cmd CLI) error {
 
 	// handle 0 argument
-	err := checkArgsNotEmpty(cmd)
-	if err != nil {
-		return err
+	if len(cmd.Args) == 0 {
+		return errors.New("not enough arguments")
 	}
 
 	// set current user to logged user
-	_, err = state.DB.GetUser(context.Background(), cmd.Args[0])
+	_, err := state.DB.GetUser(context.Background(), cmd.Args[0])
 	if err != nil {
 		fmt.Println("user does not exist")
 		os.Exit(1)
@@ -44,14 +43,13 @@ func LoginHandler(state *config.State, cmd CLI) error {
 // RegisterHandler register user to table users in postgres database
 func RegisterHandler(state *config.State, cmd CLI) error {
 	// args for user's name
-	err := checkArgsNotEmpty(cmd)
-	if err != nil {
-		return err
+	if len(cmd.Args) == 0 {
+		return errors.New("not enough arguments")
 	}
 	name := cmd.Args[0]
 
 	// Check if the user already exists
-	_, err = state.DB.GetUser(context.Background(), name)
+	_, err := state.DB.GetUser(context.Background(), name)
 	if err == nil {
 		// User exists exit code 1
 		fmt.Println("User already exists")
@@ -110,16 +108,53 @@ func UserListHandler(state *config.State, cmd CLI) error {
 }
 
 // AggHandler , the main command to return RSSFeed feed
-func Agghandler(state *config.State, cmd CLI) error {
+func AggHandler(state *config.State, cmd CLI) error {
 	fmt.Printf("%+v\n", fetchFeed())
 	return nil
 }
 
+// AddFeedHandler, To create feed by a current user
+func AddFeedHandler(state *config.State, cmd CLI) error {
+	// need 2 args
+	var err error = nil
+	if len(cmd.Args) < 2 {
+		err = errors.New("not enough arguments")
+		os.Exit(1)
+	}
+
+	// set the args
+	feedName := cmd.Args[0]
+	feedUrl := cmd.Args[1]
+	if feedName == "" || feedUrl == "" {
+		err = errors.New("feedName and feedUrl are required")
+		os.Exit(1)
+	}
+
+	// create feed
+	currentUser, _ := state.DB.GetUser(context.Background(), state.Config.CurrentUser)
+	id := uuid2.New()
+	now := time.Now()
+	createFeedParams := database.CreateFeedParams{
+		ID:        id,
+		Name:      currentUser.Name,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Url:       feedUrl,
+		UserID:    currentUser.ID,
+	}
+	feed, err := state.DB.CreateFeed(context.Background(), createFeedParams)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Feed created successfully")
+	fmt.Printf("Feed: %v\n", feed)
+
+	return err
+}
+
 // handlersUtil
 func checkArgsNotEmpty(cmd CLI) error {
-	if len(cmd.Args) == 0 {
-		return errors.New("not enough arguments")
-	}
 	return nil
 }
 func fetchFeed() *models.RSSFeed {
