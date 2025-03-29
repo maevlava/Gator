@@ -2,11 +2,16 @@ package commands
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	uuid2 "github.com/google/uuid"
 	"github.com/maevlava/Gator/internal/config"
 	"github.com/maevlava/Gator/internal/database"
+	"github.com/maevlava/Gator/internal/models"
+	"html"
+	"io"
+	"net/http"
 	"os"
 	"time"
 )
@@ -104,10 +109,61 @@ func UserListHandler(state *config.State, cmd CLI) error {
 	return err
 }
 
+// AggHandler , the main command to return RSSFeed feed
+func Agghandler(state *config.State, cmd CLI) error {
+	fmt.Printf("%+v\n", fetchFeed())
+	return nil
+}
+
 // handlersUtil
 func checkArgsNotEmpty(cmd CLI) error {
 	if len(cmd.Args) == 0 {
 		return errors.New("not enough arguments")
 	}
 	return nil
+}
+func fetchFeed() *models.RSSFeed {
+	// make a client with timeout context
+	client := &http.Client{Timeout: time.Second * 30}
+
+	// make a request with context
+	req, err := http.NewRequestWithContext(context.Background(), "GET", "https://www.wagslane.dev/index.xml", nil)
+	if err != nil {
+		_ = fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// do the request
+	resp, err := client.Do(req)
+	if err != nil {
+		_ = fmt.Errorf("failed to fetch feed: %w", err)
+	}
+	// close the body
+	defer resp.Body.Close()
+
+	// check if status is ok
+	if resp.StatusCode != http.StatusOK {
+		_ = fmt.Errorf("failed to fetch feed: %s", resp.Status)
+	}
+
+	// read the body
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		_ = fmt.Errorf("failed to read body: %w", err)
+	}
+	// unmarshall the body to RSSFeed
+	var rssFeed models.RSSFeed
+	err = xml.Unmarshal(bodyBytes, &rssFeed)
+	if err != nil {
+		_ = fmt.Errorf("failed to unmarshal xml: %w", err)
+	}
+
+	// clean rssFeed from unescaped HTML string
+	rssFeed.Channel.Title = html.UnescapeString(rssFeed.Channel.Title)
+	rssFeed.Channel.Description = html.UnescapeString(rssFeed.Channel.Description)
+	for i := range rssFeed.Channel.Item {
+		rssFeed.Channel.Item[i].Title = html.UnescapeString(rssFeed.Channel.Item[i].Title)
+		rssFeed.Channel.Item[i].Description = html.UnescapeString(rssFeed.Channel.Item[i].Description)
+	}
+
+	return &rssFeed
 }
