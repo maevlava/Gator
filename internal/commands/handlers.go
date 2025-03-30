@@ -100,8 +100,9 @@ func UserListHandler(state *config.State, cmd CLI) error {
 	for _, user := range users {
 		if user.Name == state.Config.CurrentUser {
 			fmt.Printf("* %s (current)\n", user.Name)
+			continue
 		}
-		fmt.Printf("* %s", user.Name)
+		fmt.Printf("* %s\n", user.Name)
 	}
 
 	return err
@@ -118,17 +119,13 @@ func AddFeedHandler(state *config.State, cmd CLI) error {
 	// need 2 args
 	var err error = nil
 	if len(cmd.Args) < 2 {
-		err = errors.New("not enough arguments")
+		err = errors.New("not enough arguments feedName and feedUrl are required\n")
 		os.Exit(1)
 	}
 
 	// set the args
 	feedName := cmd.Args[0]
 	feedUrl := cmd.Args[1]
-	if feedName == "" || feedUrl == "" {
-		err = errors.New("feedName and feedUrl are required")
-		os.Exit(1)
-	}
 
 	// create feed
 	currentUser, _ := state.DB.GetUser(context.Background(), state.Config.CurrentUser)
@@ -136,7 +133,7 @@ func AddFeedHandler(state *config.State, cmd CLI) error {
 	now := time.Now()
 	createFeedParams := database.CreateFeedParams{
 		ID:        id,
-		Name:      currentUser.Name,
+		Name:      feedName,
 		CreatedAt: now,
 		UpdatedAt: now,
 		Url:       feedUrl,
@@ -149,6 +146,64 @@ func AddFeedHandler(state *config.State, cmd CLI) error {
 
 	fmt.Println("Feed created successfully")
 	fmt.Printf("Feed: %v\n", feed)
+
+	return err
+}
+
+// FeedListHandler, to print out all name, url, and creator  of the feed
+func FeedListHandler(state *config.State, cmd CLI) error {
+	feedListWithUser, err := state.DB.GetAllFeedsWithUser(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to get all feeds: %w", err)
+	}
+
+	for _, feed := range feedListWithUser {
+		fmt.Printf("%s\n", feed.Name)
+		fmt.Printf("%s\n", feed.Url)
+		fmt.Printf("%s\n", feed.UserName)
+	}
+
+	return err
+}
+
+// FollowHandler to create new Feed Follow for current user
+func FollowHandler(state *config.State, cmd CLI) error {
+
+	// need 1 arg
+	var err error = nil
+
+	if len(cmd.Args) < 1 {
+		_ = fmt.Errorf("not enough arguments: feedUrl is required")
+		os.Exit(1)
+	}
+
+	feedUrl := cmd.Args[0]
+
+	feed, err := state.DB.GetFeedByUrl(context.Background(), feedUrl)
+	if err != nil {
+		return errors.New("failed to get feed by url")
+	}
+
+	user, err := state.DB.GetUser(context.Background(), state.Config.CurrentUser)
+	if err != nil {
+		return errors.New("failed to get current user")
+	}
+
+	now := time.Now()
+	feedFollowsParams := database.CreateFeedFollowParams{
+		ID:        uuid2.New(),
+		CreatedAt: now,
+		UpdatedAt: now,
+		FeedID:    feed.ID,
+		UserID:    user.ID,
+	}
+	newFeedFollows, err := state.DB.CreateFeedFollow(context.Background(), feedFollowsParams)
+	if err != nil {
+		return fmt.Errorf("failed to create feed follow for feed '%s' by user '%s': %w", feed.Name, user.Name, err)
+	}
+
+	fmt.Println("FeedFollows created successfully")
+	fmt.Printf("Feed: %v\n", newFeedFollows)
 
 	return err
 }
