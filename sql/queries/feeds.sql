@@ -16,6 +16,9 @@ SELECT * from feeds;
 -- name: GetFeedByUrl :one
 SELECT * from feeds WHERE url = $1;
 
+-- name: GetFeed :one
+SELECT * from feeds WHERE id = $1;
+
 
 -- name: GetAllFeedsWithUser :many
 SELECT f.id, f.created_at, f.updated_at, f.name, f.url, f.user_id, u.name as user_name

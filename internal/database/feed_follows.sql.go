@@ -13,7 +13,6 @@ import (
 )
 
 const createFeedFollow = `-- name: CreateFeedFollow :one
-
 WITH inserted_feed_follows AS (
     INSERT INTO feed_follows(id, created_at, updated_at, user_id, feed_id)
         VALUES (
@@ -68,4 +67,41 @@ func (q *Queries) CreateFeedFollow(ctx context.Context, arg CreateFeedFollowPara
 		&i.UserName,
 	)
 	return i, err
+}
+
+const getFollowedFeedsForUser = `-- name: GetFollowedFeedsForUser :many
+SELECT f.id, f.created_at, f.updated_at, f.name, f.url, f.user_id
+FROM feeds f
+         INNER JOIN feed_follows ff ON f.id = ff.feed_id
+WHERE ff.user_id = $1
+`
+
+func (q *Queries) GetFollowedFeedsForUser(ctx context.Context, userID uuid.UUID) ([]Feed, error) {
+	rows, err := q.db.QueryContext(ctx, getFollowedFeedsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Feed
+	for rows.Next() {
+		var i Feed
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Name,
+			&i.Url,
+			&i.UserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

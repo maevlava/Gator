@@ -117,37 +117,49 @@ func AggHandler(state *config.State, cmd CLI) error {
 // AddFeedHandler, To create feed by a current user
 func AddFeedHandler(state *config.State, cmd CLI) error {
 	// need 2 args
-	var err error = nil
 	if len(cmd.Args) < 2 {
-		err = errors.New("not enough arguments feedName and feedUrl are required\n")
-		os.Exit(1)
+		return errors.New("not enough arguments: feedName and feedUrl are required")
 	}
-
-	// set the args
 	feedName := cmd.Args[0]
 	feedUrl := cmd.Args[1]
 
-	// create feed
-	currentUser, _ := state.DB.GetUser(context.Background(), state.Config.CurrentUser)
-	id := uuid2.New()
-	now := time.Now()
+	// get user
+	currentUser, err := state.DB.GetUser(context.Background(), state.Config.CurrentUser)
+	if err != nil {
+		return fmt.Errorf("failed to get current user '%v': %w", state.Config.CurrentUser, err)
+	}
+
+	createTime := time.Now().UTC()
 	createFeedParams := database.CreateFeedParams{
-		ID:        id,
+		ID:        uuid2.New(),
+		CreatedAt: createTime,
+		UpdatedAt: createTime,
 		Name:      feedName,
-		CreatedAt: now,
-		UpdatedAt: now,
 		Url:       feedUrl,
 		UserID:    currentUser.ID,
 	}
+
 	feed, err := state.DB.CreateFeed(context.Background(), createFeedParams)
+	if err != nil {
+		return fmt.Errorf("failed to create feed '%s': %w", feedName, err)
+	}
+
+	// ehanced
+	followTime := time.Now().UTC()
+	createFollowParams := database.CreateFeedFollowParams{
+		ID:        uuid2.New(),
+		CreatedAt: followTime,
+		UpdatedAt: followTime,
+		UserID:    currentUser.ID,
+		FeedID:    feed.ID,
+	}
+
+	_, err = state.DB.CreateFeedFollow(context.Background(), createFollowParams)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("Feed created successfully")
-	fmt.Printf("Feed: %v\n", feed)
-
-	return err
+	return nil
 }
 
 // FeedListHandler, to print out all name, url, and creator  of the feed
@@ -206,6 +218,27 @@ func FollowHandler(state *config.State, cmd CLI) error {
 	fmt.Printf("Feed: %v\n", newFeedFollows)
 
 	return err
+}
+
+// FollowingHandler return all the feeds current user are following
+func FollowingHandler(state *config.State, cmd CLI) error {
+
+	currentUser, err := state.DB.GetUser(context.Background(), state.Config.CurrentUser)
+	if err != nil {
+		return fmt.Errorf("failed to get current user '%v': %w", state.Config.CurrentUser, err)
+	}
+
+	followedFeeds, err := state.DB.GetFollowedFeedsForUser(context.Background(), currentUser.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get followed feeds for user '%s': %w", currentUser.Name, err)
+	}
+
+	for _, feed := range followedFeeds {
+		fmt.Printf("- %s\n", feed.Name)
+	}
+	fmt.Printf("%s\n", currentUser.Name)
+
+	return nil // Success
 }
 
 // handlersUtil

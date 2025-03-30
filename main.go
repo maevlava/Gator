@@ -49,4 +49,5 @@ func registerCommandsHandlers(commandsRegistry *commands.Registry) {
 	commandsRegistry.Register("addfeed", commands.AddFeedHandler)
 	commandsRegistry.Register("feeds", commands.FeedListHandler)
 	commandsRegistry.Register("follow", commands.FollowHandler)
+	commandsRegistry.Register("following", commands.FollowingHandler)
 }
