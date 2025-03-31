@@ -1,6 +1,6 @@
 # Gator 🐊
 
-Gator is a command-line tool for aggregating RSS and Atom feeds directly in your terminal. Follow your favorite blogs and news sources without needing a separate app. It fetches feeds in the background and stores posts locally in a PostgreSQL database.
+gator is a command-line tool for aggregating RSS and Atom feeds directly in your terminal. Follow your favorite blogs and news sources without needing a separate app. It fetches feeds in the background and stores posts locally in a PostgreSQL database.
 
 ## Prerequisites
 
