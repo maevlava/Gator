@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -145,6 +146,47 @@ func UnfollowHandler(state *config.State, cmd CLI, currentUser database.User) er
 	}
 
 	fmt.Printf("Successfully unfollowed feed: %s\n", feedUrl)
+
+	return nil
+}
+
+func BrowseHandler(state *config.State, cmd CLI, user database.User) error {
+	limit := int32(2)
+	if len(cmd.Args) > 0 {
+		parsedLimit, err := strconv.Atoi(cmd.Args[0])
+		if err != nil {
+			return err
+		}
+		if parsedLimit <= 0 {
+			return errors.New("limit must be a positive integer")
+		}
+		limit = int32(parsedLimit)
+	}
+
+	posts, err := state.DB.GetPostsForUser(context.Background(), database.GetPostsForUserParams{
+		UserID: user.ID,
+		Limit:  limit,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get posts for user '%s': %w", user.Name, err)
+	}
+
+	for _, post := range posts {
+		fmt.Printf("Title: %s\n", post.Title)
+
+		publishedStr := "N/A"
+		if post.PublishedAt.Valid {
+			publishedStr = post.PublishedAt.Time.Format(time.RFC1123)
+		}
+		fmt.Printf("Published: %s\n", publishedStr)
+		descriptionStr := "No description available."
+		if post.Description.Valid && post.Description.String != "" {
+			descriptionStr = post.Description.String
+		}
+
+		fmt.Printf("Description: %s\n", descriptionStr)
+		fmt.Printf("URL: %s\n", post.Url)
+	}
 
 	return nil
 }
@@ -304,44 +346,79 @@ func fetchAndParseFeed(url string) (*models.RSSFeed, error) {
 func scrapeFeeds(db *database.Queries) error {
 	feed, err := db.GetNextFeedToFetch(context.Background())
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			log.Println("No feeds available to fetch right now.")
-			return nil
-		}
 		return fmt.Errorf("db.GetNextFeedToFetch: %w", err)
 	}
 
-	// Mark feed
-	now := time.Now()
+	now := time.Now().UTC()
 	markParams := database.MarkFeedFetchedParams{
-		ID: feed.ID,
-		LastFetchedAt: sql.NullTime{
-			Time:  now,
-			Valid: true,
-		},
+		ID:            feed.ID,
+		LastFetchedAt: sql.NullTime{Time: now, Valid: true},
 	}
-
 	err = db.MarkFeedFetched(context.Background(), markParams)
 	if err != nil {
 		return fmt.Errorf("db.MarkFeedFetched feed ID %s: %w", feed.ID, err)
 	}
 
-	// fetch feed
 	parsedFeed, err := fetchAndParseFeed(feed.Url)
 	if err != nil {
-		return fmt.Errorf("fetchAndParseFeedAdapt %s: %w", feed.Url, err)
+		return fmt.Errorf("fetchAndParseFeedA %s: %w", feed.Url, err)
 	}
 
-	// Use fields from user's models.RSSFeed struct
-	if len(parsedFeed.Channel.Item) == 0 {
-		log.Printf("-> Feed '%s' has no items.", parsedFeed.Channel.Title)
-	} else {
-		log.Printf("-> Feed '%s' (%d posts found):", parsedFeed.Channel.Title, len(parsedFeed.Channel.Item))
-		for _, item := range parsedFeed.Channel.Item {
-			fmt.Printf("   - Post Found: %s\n", item.Title)
+	processedCount := 0
+	skippedCount := 0
+	for _, item := range parsedFeed.Channel.Item {
+
+		publishedAt := sql.NullTime{}
+		dateString := item.PubDate
+
+		if dateString != "" {
+			parsedTime, err := time.Parse(time.RFC1123Z, dateString)
+			if err != nil {
+				parsedTime, err = time.Parse(time.RFC1123, dateString)
+			}
+
+			if err == nil {
+				publishedAt = sql.NullTime{Time: parsedTime.UTC(), Valid: true}
+			} else {
+				return fmt.Errorf("failed to parse date %s: %w", dateString, err)
+			}
 		}
+
+		description := sql.NullString{}
+		if item.Description != "" {
+			description = sql.NullString{String: item.Description, Valid: true}
+		}
+
+		postUrl := item.Link
+		if postUrl == "" {
+			log.Printf("Skipping post '%s' - missing URL", item.Title)
+			skippedCount++
+			continue
+		}
+
+		createParams := database.CreatePostParams{
+			ID:          uuid2.New(),
+			CreatedAt:   time.Now().UTC(),
+			UpdatedAt:   time.Now().UTC(),
+			Title:       item.Title,
+			Url:         postUrl,
+			Description: description,
+			PublishedAt: publishedAt,
+			FeedID:      feed.ID,
+		}
+
+		_, err = db.CreatePost(context.Background(), createParams)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				skippedCount++
+				continue
+			}
+			log.Printf("Failed to create post '%s' (%s): %v", item.Title, postUrl, err)
+			continue
+		}
+		processedCount++
+		fmt.Printf("   - Post Saved: %s\n", item.Title) // Kept this print for user feedback
 	}
-	log.Printf("Finished processing feed '%s'.", feed.Name)
 	return nil
 }
 

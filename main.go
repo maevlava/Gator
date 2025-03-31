@@ -51,4 +51,5 @@ func registerCommandsHandlers(commandsRegistry *commands.Registry) {
 	commandsRegistry.Register("follow", commands.MiddlewareLoggedIn(commands.FollowHandler))
 	commandsRegistry.Register("following", commands.MiddlewareLoggedIn(commands.FollowingHandler))
 	commandsRegistry.Register("unfollow", commands.MiddlewareLoggedIn(commands.UnfollowHandler))
+	commandsRegistry.Register("browse", commands.MiddlewareLoggedIn(commands.BrowseHandler))
 }
