@@ -46,8 +46,9 @@ func registerCommandsHandlers(commandsRegistry *commands.Registry) {
 	commandsRegistry.Register("reset", commands.ResetHandler)
 	commandsRegistry.Register("users", commands.UserListHandler)
 	commandsRegistry.Register("agg", commands.AggHandler)
-	commandsRegistry.Register("addfeed", commands.AddFeedHandler)
 	commandsRegistry.Register("feeds", commands.FeedListHandler)
-	commandsRegistry.Register("follow", commands.FollowHandler)
-	commandsRegistry.Register("following", commands.FollowingHandler)
+	commandsRegistry.Register("addfeed", commands.MiddlewareLoggedIn(commands.AddFeedHandler))
+	commandsRegistry.Register("follow", commands.MiddlewareLoggedIn(commands.FollowHandler))
+	commandsRegistry.Register("following", commands.MiddlewareLoggedIn(commands.FollowingHandler))
+	commandsRegistry.Register("unfollow", commands.MiddlewareLoggedIn(commands.UnfollowHandler))
 }

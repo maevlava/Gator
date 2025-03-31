@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"database/sql"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -11,10 +12,144 @@ import (
 	"github.com/maevlava/Gator/internal/models"
 	"html"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"time"
 )
+
+// Middleware Logged In Handlers
+
+func MiddlewareLoggedIn(handler func(state *config.State, cmd CLI, user database.User) error) func(state *config.State, cmd CLI) error {
+
+	return func(state *config.State, cmd CLI) error {
+		user, err := state.DB.GetUser(context.Background(), state.Config.CurrentUser)
+		if err != nil {
+			return fmt.Errorf("failed to get current user '%v': %w", state.Config.CurrentUser, err)
+		}
+		err = handler(state, cmd, user)
+
+		return err
+	}
+}
+
+// AddFeedHandler, To create feed by a current user
+func AddFeedHandler(state *config.State, cmd CLI, currentUser database.User) error {
+	// need 2 args
+	if len(cmd.Args) < 2 {
+		return errors.New("not enough arguments: feedName and feedUrl are required")
+	}
+	feedName := cmd.Args[0]
+	feedUrl := cmd.Args[1]
+
+	createTime := time.Now().UTC()
+	createFeedParams := database.CreateFeedParams{
+		ID:        uuid2.New(),
+		CreatedAt: createTime,
+		UpdatedAt: createTime,
+		Name:      feedName,
+		Url:       feedUrl,
+		UserID:    currentUser.ID,
+	}
+
+	feed, err := state.DB.CreateFeed(context.Background(), createFeedParams)
+	if err != nil {
+		return fmt.Errorf("failed to create feed '%s': %w", feedName, err)
+	}
+
+	// enhanced to auto current user follow the feed
+	followTime := time.Now().UTC()
+	createFollowParams := database.CreateFeedFollowParams{
+		ID:        uuid2.New(),
+		CreatedAt: followTime,
+		UpdatedAt: followTime,
+		UserID:    currentUser.ID,
+		FeedID:    feed.ID,
+	}
+
+	_, err = state.DB.CreateFeedFollow(context.Background(), createFollowParams)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// FollowHandler to create new Feed Follow for current user
+func FollowHandler(state *config.State, cmd CLI, currentUser database.User) error {
+
+	// need 1 arg
+	var err error = nil
+
+	if len(cmd.Args) < 1 {
+		_ = fmt.Errorf("not enough arguments: feedUrl is required")
+		os.Exit(1)
+	}
+
+	feedUrl := cmd.Args[0]
+
+	feed, err := state.DB.GetFeedByUrl(context.Background(), feedUrl)
+	if err != nil {
+		return errors.New("failed to get feed by url")
+	}
+
+	now := time.Now()
+	feedFollowsParams := database.CreateFeedFollowParams{
+		ID:        uuid2.New(),
+		CreatedAt: now,
+		UpdatedAt: now,
+		FeedID:    feed.ID,
+		UserID:    currentUser.ID,
+	}
+	newFeedFollows, err := state.DB.CreateFeedFollow(context.Background(), feedFollowsParams)
+	if err != nil {
+		return fmt.Errorf("failed to create feed follow for feed '%s' by user '%s': %w", feed.Name, currentUser.Name, err)
+	}
+
+	fmt.Println("FeedFollows created successfully")
+	fmt.Printf("Feed: %v\n", newFeedFollows)
+
+	return err
+}
+
+// FollowingHandler return all the feeds current user are following
+func FollowingHandler(state *config.State, cmd CLI, currentUser database.User) error {
+	followedFeeds, err := state.DB.GetFollowedFeedsForUser(context.Background(), currentUser.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get followed feeds for user '%s': %w", currentUser.Name, err)
+	}
+
+	for _, feed := range followedFeeds {
+		fmt.Printf("- %s\n", feed.Name)
+	}
+	fmt.Printf("%s\n", currentUser.Name)
+
+	return nil // Success
+}
+
+// UnfollowHandler delete a feed follow and feed follow combination
+func UnfollowHandler(state *config.State, cmd CLI, currentUser database.User) error {
+
+	if len(cmd.Args) < 1 {
+		return errors.New("not enough arguments: feedUrl is required")
+	}
+	feedUrl := cmd.Args[0]
+
+	DeleteFeedFollowParams := database.DeleteFeedFollowForUserParams{
+		UserID: currentUser.ID,
+		Url:    feedUrl,
+	}
+	err := state.DB.DeleteFeedFollowForUser(context.Background(), DeleteFeedFollowParams)
+	if err != nil {
+		return fmt.Errorf("failed to delete feed follow for user '%s': %w", currentUser.Name, err)
+	}
+
+	fmt.Printf("Successfully unfollowed feed: %s\n", feedUrl)
+
+	return nil
+}
+
+// Basic Handler
 
 // LoginHandler set current_user to user login
 func LoginHandler(state *config.State, cmd CLI) error {
@@ -108,60 +243,6 @@ func UserListHandler(state *config.State, cmd CLI) error {
 	return err
 }
 
-// AggHandler , the main command to return RSSFeed feed
-func AggHandler(state *config.State, cmd CLI) error {
-	fmt.Printf("%+v\n", fetchFeed())
-	return nil
-}
-
-// AddFeedHandler, To create feed by a current user
-func AddFeedHandler(state *config.State, cmd CLI) error {
-	// need 2 args
-	if len(cmd.Args) < 2 {
-		return errors.New("not enough arguments: feedName and feedUrl are required")
-	}
-	feedName := cmd.Args[0]
-	feedUrl := cmd.Args[1]
-
-	// get user
-	currentUser, err := state.DB.GetUser(context.Background(), state.Config.CurrentUser)
-	if err != nil {
-		return fmt.Errorf("failed to get current user '%v': %w", state.Config.CurrentUser, err)
-	}
-
-	createTime := time.Now().UTC()
-	createFeedParams := database.CreateFeedParams{
-		ID:        uuid2.New(),
-		CreatedAt: createTime,
-		UpdatedAt: createTime,
-		Name:      feedName,
-		Url:       feedUrl,
-		UserID:    currentUser.ID,
-	}
-
-	feed, err := state.DB.CreateFeed(context.Background(), createFeedParams)
-	if err != nil {
-		return fmt.Errorf("failed to create feed '%s': %w", feedName, err)
-	}
-
-	// ehanced
-	followTime := time.Now().UTC()
-	createFollowParams := database.CreateFeedFollowParams{
-		ID:        uuid2.New(),
-		CreatedAt: followTime,
-		UpdatedAt: followTime,
-		UserID:    currentUser.ID,
-		FeedID:    feed.ID,
-	}
-
-	_, err = state.DB.CreateFeedFollow(context.Background(), createFollowParams)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // FeedListHandler, to print out all name, url, and creator  of the feed
 func FeedListHandler(state *config.State, cmd CLI) error {
 	feedListWithUser, err := state.DB.GetAllFeedsWithUser(context.Background())
@@ -178,109 +259,37 @@ func FeedListHandler(state *config.State, cmd CLI) error {
 	return err
 }
 
-// FollowHandler to create new Feed Follow for current user
-func FollowHandler(state *config.State, cmd CLI) error {
-
-	// need 1 arg
-	var err error = nil
-
-	if len(cmd.Args) < 1 {
-		_ = fmt.Errorf("not enough arguments: feedUrl is required")
-		os.Exit(1)
-	}
-
-	feedUrl := cmd.Args[0]
-
-	feed, err := state.DB.GetFeedByUrl(context.Background(), feedUrl)
-	if err != nil {
-		return errors.New("failed to get feed by url")
-	}
-
-	user, err := state.DB.GetUser(context.Background(), state.Config.CurrentUser)
-	if err != nil {
-		return errors.New("failed to get current user")
-	}
-
-	now := time.Now()
-	feedFollowsParams := database.CreateFeedFollowParams{
-		ID:        uuid2.New(),
-		CreatedAt: now,
-		UpdatedAt: now,
-		FeedID:    feed.ID,
-		UserID:    user.ID,
-	}
-	newFeedFollows, err := state.DB.CreateFeedFollow(context.Background(), feedFollowsParams)
-	if err != nil {
-		return fmt.Errorf("failed to create feed follow for feed '%s' by user '%s': %w", feed.Name, user.Name, err)
-	}
-
-	fmt.Println("FeedFollows created successfully")
-	fmt.Printf("Feed: %v\n", newFeedFollows)
-
-	return err
-}
-
-// FollowingHandler return all the feeds current user are following
-func FollowingHandler(state *config.State, cmd CLI) error {
-
-	currentUser, err := state.DB.GetUser(context.Background(), state.Config.CurrentUser)
-	if err != nil {
-		return fmt.Errorf("failed to get current user '%v': %w", state.Config.CurrentUser, err)
-	}
-
-	followedFeeds, err := state.DB.GetFollowedFeedsForUser(context.Background(), currentUser.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get followed feeds for user '%s': %w", currentUser.Name, err)
-	}
-
-	for _, feed := range followedFeeds {
-		fmt.Printf("- %s\n", feed.Name)
-	}
-	fmt.Printf("%s\n", currentUser.Name)
-
-	return nil // Success
-}
-
-// handlersUtil
-func checkArgsNotEmpty(cmd CLI) error {
-	return nil
-}
-func fetchFeed() *models.RSSFeed {
-	// make a client with timeout context
+// --- Aggregator Code ---
+// fetchAndParseFeed Takes a URL and returns the parsed feed or an error.
+func fetchAndParseFeed(url string) (*models.RSSFeed, error) {
 	client := &http.Client{Timeout: time.Second * 30}
 
-	// make a request with context
-	req, err := http.NewRequestWithContext(context.Background(), "GET", "https://www.wagslane.dev/index.xml", nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
 	if err != nil {
-		_ = fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request for %s: %w", url, err)
 	}
 
-	// do the request
 	resp, err := client.Do(req)
 	if err != nil {
-		_ = fmt.Errorf("failed to fetch feed: %w", err)
+		return nil, fmt.Errorf("failed to fetch feed %s: %w", url, err)
 	}
-	// close the body
 	defer resp.Body.Close()
 
-	// check if status is ok
 	if resp.StatusCode != http.StatusOK {
-		_ = fmt.Errorf("failed to fetch feed: %s", resp.Status)
+		return nil, fmt.Errorf("failed to fetch feed %s: status code %d", url, resp.StatusCode)
 	}
 
-	// read the body
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		_ = fmt.Errorf("failed to read body: %w", err)
+		return nil, fmt.Errorf("failed to read body for %s: %w", url, err)
 	}
-	// unmarshall the body to RSSFeed
+
 	var rssFeed models.RSSFeed
 	err = xml.Unmarshal(bodyBytes, &rssFeed)
 	if err != nil {
-		_ = fmt.Errorf("failed to unmarshal xml: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal xml for %s: %w", url, err)
 	}
 
-	// clean rssFeed from unescaped HTML string
 	rssFeed.Channel.Title = html.UnescapeString(rssFeed.Channel.Title)
 	rssFeed.Channel.Description = html.UnescapeString(rssFeed.Channel.Description)
 	for i := range rssFeed.Channel.Item {
@@ -288,5 +297,82 @@ func fetchFeed() *models.RSSFeed {
 		rssFeed.Channel.Item[i].Description = html.UnescapeString(rssFeed.Channel.Item[i].Description)
 	}
 
-	return &rssFeed
+	return &rssFeed, nil
+}
+
+// scrapeFeeds
+func scrapeFeeds(db *database.Queries) error {
+	feed, err := db.GetNextFeedToFetch(context.Background())
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			log.Println("No feeds available to fetch right now.")
+			return nil
+		}
+		return fmt.Errorf("db.GetNextFeedToFetch: %w", err)
+	}
+
+	// Mark feed
+	now := time.Now()
+	markParams := database.MarkFeedFetchedParams{
+		ID: feed.ID,
+		LastFetchedAt: sql.NullTime{
+			Time:  now,
+			Valid: true,
+		},
+	}
+
+	err = db.MarkFeedFetched(context.Background(), markParams)
+	if err != nil {
+		return fmt.Errorf("db.MarkFeedFetched feed ID %s: %w", feed.ID, err)
+	}
+
+	// fetch feed
+	parsedFeed, err := fetchAndParseFeed(feed.Url)
+	if err != nil {
+		return fmt.Errorf("fetchAndParseFeedAdapt %s: %w", feed.Url, err)
+	}
+
+	// Use fields from user's models.RSSFeed struct
+	if len(parsedFeed.Channel.Item) == 0 {
+		log.Printf("-> Feed '%s' has no items.", parsedFeed.Channel.Title)
+	} else {
+		log.Printf("-> Feed '%s' (%d posts found):", parsedFeed.Channel.Title, len(parsedFeed.Channel.Item))
+		for _, item := range parsedFeed.Channel.Item {
+			fmt.Printf("   - Post Found: %s\n", item.Title)
+		}
+	}
+	log.Printf("Finished processing feed '%s'.", feed.Name)
+	return nil
+}
+
+// AggHandler runs the main feed aggregation loop.
+func AggHandler(state *config.State, cmd CLI) error {
+	if len(cmd.Args) < 1 {
+		return errors.New("time_between_reqs argument required (e.g., '1m', '30s')")
+	}
+	durationStr := cmd.Args[0]
+	timeBetweenRequests, err := time.ParseDuration(durationStr)
+	if err != nil {
+		return fmt.Errorf("invalid duration format '%s': %w", durationStr, err)
+	}
+
+	minDuration := 5 * time.Second
+	if timeBetweenRequests < minDuration {
+		log.Printf("Duration is too short")
+	}
+
+	ticker := time.NewTicker(timeBetweenRequests)
+	defer ticker.Stop()
+
+	if err := scrapeFeeds(state.DB); err != nil {
+		log.Printf("Initial scrape failed: %v", err)
+	}
+
+	for range ticker.C {
+		if err := scrapeFeeds(state.DB); err != nil {
+			log.Printf("Scraping failed during loop: %v", err)
+		}
+	}
+
+	return nil
 }
